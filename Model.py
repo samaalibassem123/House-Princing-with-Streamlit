@@ -63,7 +63,7 @@ class Model():
         svr_params ={
             "kernel": ["linear", "poly", "rbf", "sigmoid"],
         } 
-        
+            
         #GridSearchccv
         self.mdl = GridSearchCV(estimator=rdf, param_grid=rdf_params ,cv=30)
         self.mdl.fit(x_process, self.y)
