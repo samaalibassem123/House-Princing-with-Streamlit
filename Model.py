@@ -1,11 +1,12 @@
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.preprocessing import OneHotEncoder, StandardScaler,QuantileTransformer
 from sklearn.model_selection import GridSearchCV, train_test_split
 from sklearn.pipeline import Pipeline, make_pipeline
-from sklearn.compose import ColumnTransformer
+from sklearn.compose import make_column_transformer
 from sklearn.linear_model import LinearRegression, SGDRegressor
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.svm import SVR
-from sklearn.impute import SimpleImputer
+from sklearn.experimental import enable_iterative_imputer
+from sklearn.impute import SimpleImputer, IterativeImputer, KNNImputer
 import numpy as np
 import pandas as pd
 import time
@@ -13,55 +14,64 @@ import sys
 
 class Model():
     def __init__(self, df):
+        self.df = df
         self.num_features = ['MSSubClass','LotArea']
         self.cat_features = ['MSZoning']
-        self.x = df[['MSSubClass','LotArea','MSZoning']]
-        self.y = df.SalePrice
-    def preprocess(self, df):
-        #define piplines
-        p_numF = Pipeline(steps=[
-            ('Imp', SimpleImputer()),
-            ('std', StandardScaler(with_mean=True, with_std=True))
-        ])
-        p_catF = Pipeline(steps=[
-            ('mput',  SimpleImputer(strategy='most_frequent')),
-            ('ondH', OneHotEncoder())
-        ])
+        self.x = self.df[['MSSubClass','MSZoning','LotArea']]
+        self.y = self.df.SalePrice
+        self.mdl = None
+    def preprocess(self, X):
+        #define the methods for piplines
+        imputer = SimpleImputer()
+        oneH = OneHotEncoder(handle_unknown='ignore')
+        Stdr = StandardScaler(with_mean=False)
+        qt = QuantileTransformer()
+        #create piplines
+        p_numF = make_pipeline(imputer,qt, Stdr)
+        p_catF = make_pipeline(oneH, imputer, qt, Stdr)
         #transform or preprocess the columns
-        Preprocess = ColumnTransformer(
-            transformers=
-            [
-                ('numCol', p_numF, self.num_features),
-                ('catCol', p_catF, self.cat_features)
-            ],
-             remainder='drop',
+        Preprocess = make_column_transformer(
+            (p_numF, self.num_features),
+            (p_catF, self.cat_features),
+            remainder='drop'
         )
-        
-        return Preprocess
-    def loading_animation(self, duration):
-        symbols = ['-', '\\', '|', '/']
-        for i in range(int(duration * 10)):
-            for symbol in symbols:
-                sys.stdout.write(f'\rLoading {symbol}')
-                sys.stdout.flush()
-                time.sleep(0.1)
-        print("\rLoading complete!")
+        #training the transformer 
+        Preprocess.fit_transform(self.df)
+        #return the result
+        return Preprocess.transform(X)
 
     def train(self):
         #preprocessing the data 
-        Preprocess = self.preprocess(self.x)
-
+        x_process = self.preprocess(self.x)
         # linear regression 
         lin_reg = LinearRegression()
         reg_params = {
             "fit_intercept": [True, False],  
-            "copy_X": [True, False],        
-            "positive": [True, False],      # Force coefficients to be positive
-            "n_jobs": [None, -1]  
         }
-        #GridSearchccv
-        Gcv = GridSearchCV(estimator=lin_reg, param_grid=reg_params, cv=3)
+        # SGDRegressor
+        sgdr = SGDRegressor()
+        sgdr_params = {
+             "loss": ["squared_error", "huber", "epsilon_insensitive"]
+        }
+        # randomforest
+        rdf = RandomForestRegressor()
+        rdf_params = {
+             "n_estimators": [50, 100, 200],      
+        }
+        #svr
+        svr = SVR()
+        svr_params ={
+            "kernel": ["linear", "poly", "rbf", "sigmoid"],
+        } 
         
-        model = make_pipeline(Preprocess, Gcv)
-        model.fit(self.x, self.y)
-        print(model.score(self.x, self.y))
+        #GridSearchccv
+        self.mdl = GridSearchCV(estimator=rdf, param_grid=rdf_params ,cv=30)
+        self.mdl.fit(x_process, self.y)
+        print('sayer')
+        print(self.mdl.best_score_)
+    
+    def Predict(self, x):
+        x_prepro = self.preprocess(x)
+        res = self.mdl.predict(x_prepro)
+        return res
+        
