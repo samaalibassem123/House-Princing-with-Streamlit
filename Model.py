@@ -1,7 +1,7 @@
-from sklearn.preprocessing import OneHotEncoder, StandardScaler,QuantileTransformer
-from sklearn.model_selection import GridSearchCV, train_test_split
+from sklearn.preprocessing import OneHotEncoder, StandardScaler,QuantileTransformer, MinMaxScaler
+from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
 from sklearn.pipeline import Pipeline, make_pipeline
-from sklearn.compose import make_column_transformer
+from sklearn.compose import ColumnTransformer,make_column_transformer, make_column_selector
 from sklearn.linear_model import LinearRegression, SGDRegressor
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.svm import SVR
@@ -9,69 +9,86 @@ from sklearn.experimental import enable_iterative_imputer
 from sklearn.impute import SimpleImputer, IterativeImputer, KNNImputer
 import numpy as np
 import pandas as pd
-import time
-import sys
 
 class Model():
     def __init__(self, df):
         self.df = df
-        self.num_features = ['MSSubClass','LotArea']
-        self.cat_features = ['MSZoning']
-        self.x = self.df[['MSSubClass','MSZoning','LotArea']]
+        self.num_features = make_column_selector(dtype_include='number')
+        self.cat_features = make_column_selector(dtype_exclude='number')
+        self.x = self.df.drop('SalePrice',axis=1)
         self.y = self.df.SalePrice
-        self.mdl = None
-    def preprocess(self, X):
-        #define the methods for piplines
-        imputer = SimpleImputer()
-        oneH = OneHotEncoder(handle_unknown='ignore')
-        Stdr = StandardScaler(with_mean=False)
-        qt = QuantileTransformer()
-        #create piplines
-        p_numF = make_pipeline(imputer,qt, Stdr)
-        p_catF = make_pipeline(oneH, imputer, qt, Stdr)
-        #transform or preprocess the columns
-        Preprocess = make_column_transformer(
-            (p_numF, self.num_features),
-            (p_catF, self.cat_features),
+        self.model = None
+    def train(self):
+        #Initilize the functions for preprocessing data
+        one_H = OneHotEncoder(handle_unknown='ignore') # to transform categoral varibels to numerical ones
+        Quant = QuantileTransformer(n_quantiles=974) # scaling data
+        Normal  = MinMaxScaler() # scaling data
+        std  = StandardScaler(with_mean=False) # scaling data
+        impute = SimpleImputer() # to fill the null values
+       
+        # Creating piplines
+        numerical_pipline = Pipeline(
+            [
+                ('imputer', SimpleImputer(strategy='mean')), # first we need to fill the null values
+                ('std', std), # scale the data                    
+                ('qt', Quant),  # another scaler  
+             # another scaler  
+            ],
+        )
+        categoral_pipline = Pipeline(
+            [
+                ('oneHot', one_H),
+                ('imputer', SimpleImputer(strategy='constant')),
+                ('qt', Quant),  
+                ('std', std ),
+                # another scaler  
+            ]
+        )
+
+        # create the transformer for data preprocessing 
+        TransformC = ColumnTransformer(
+            [
+                ('transform_num', numerical_pipline, self.num_features),# transform the numerical columns
+                ('transform_cat', categoral_pipline, self.cat_features),# transform the categorall columns
+            ],
             remainder='drop'
         )
-        #training the transformer 
-        Preprocess.fit_transform(self.df)
-        #return the result
-        return Preprocess.transform(X)
 
-    def train(self):
-        #preprocessing the data 
-        x_process = self.preprocess(self.x)
-        # linear regression 
-        lin_reg = LinearRegression()
-        reg_params = {
-            "fit_intercept": [True, False],  
+        # create the piplines that activate the models
+        model_pipe = Pipeline([ ('Preprocess', TransformC), ('model', LinearRegression()) ])
+   
+
+        #create the grid params for each model
+        r1_param = {
+            'model__fit_intercept': [True, False],
+            'model':[LinearRegression()]
         }
-        # SGDRegressor
-        sgdr = SGDRegressor()
-        sgdr_params = {
-             "loss": ["squared_error", "huber", "epsilon_insensitive"]
+        r2_param = {
+            "model__loss": ["squared_error", "huber", "epsilon_insensitive"],
+            "model__penalty": ["l2", "l1", "elasticnet"],
+            'model':[SGDRegressor()]
         }
-        # randomforest
-        rdf = RandomForestRegressor()
-        rdf_params = {
-             "n_estimators": [50, 100, 200],      
+        r3_param = {
+            "model__n_estimators": [50, 100, 200],
+            'model':[RandomForestRegressor()]
         }
-        #svr
-        svr = SVR()
-        svr_params ={
-            "kernel": ["linear", "poly", "rbf", "sigmoid"],
-        } 
-            
-        #GridSearchccv
-        self.mdl = GridSearchCV(estimator=rdf, param_grid=rdf_params ,cv=30)
-        self.mdl.fit(x_process, self.y)
-        print('sayer')
-        print(self.mdl.best_score_)
-    
+        r4_param = {
+            'model__kernel': ["linear", "poly", "rbf", "sigmoid"],
+            "model__C": [0.1, 1, 10, 100],
+            'model':[SVR()]
+        }
+
+        prams = [r1_param, r2_param, r3_param, r4_param]
+
+        
+        #find the best model 
+        self.model = RandomizedSearchCV(estimator=model_pipe, param_distributions=prams, n_iter=1000, random_state=46, cv=3, n_jobs=-1)
+        self.model.fit(self.x,self.y)
+        print(self.model.best_estimator_)
+        print(self.model.best_params_)
+        print(self.model.best_score_)
+
     def Predict(self, x):
-        x_prepro = self.preprocess(x)
-        res = self.mdl.predict(x_prepro)
+        res = self.model.predict(x)
         return res
         

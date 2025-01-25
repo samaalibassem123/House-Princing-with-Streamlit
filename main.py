@@ -34,13 +34,14 @@ predict_df = pd.DataFrame(x)
 st.write(predict_df.head())
 
 #train the model
+
 model = Model(df)
 model.train()
 
 
 # predict a a given inputs
 def on_click():
-    res = model.Predict(predict_df)
+    res = model.Predict(test)
     st.write(res)
 st.button('click me ',on_click=on_click)
 
