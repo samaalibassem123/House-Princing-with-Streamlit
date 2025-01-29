@@ -88,7 +88,6 @@ class Model():
         print(r2_score(y_test, pred))
 
     def Predict(self, x):
-        x = x.drop(['Id', 'Alley', 'EnclosedPorch', '3SsnPorch', 'PoolQC', 'Fence','MiscFeature'], axis=1)
         return self.model.predict(x)
     
     def Accuracy(self, x , y): 
